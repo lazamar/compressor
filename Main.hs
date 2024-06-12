@@ -55,13 +55,33 @@ buildCodes = Map.fromList . go []
         ++
         go (Off : prefix) right
 
-encode :: String -> [Code]
-encode str = fmap (codemap Map.!) str
+encode :: String -> (HTree, [Bit])
+encode str = (htree, encoded)
   where
-  codemap = buildCodes $ buildTree $ countFrequency str
+  encoded = concatMap (codemap Map.!) str
+  codemap = buildCodes htree
+  htree = buildTree $ countFrequency str
+
+decode :: HTree -> [Bit] -> String
+decode codemap bits = go [] codemap bits
+  where
+    go acc tree xs = case (tree, xs) of
+      (Leaf _ char, []) -> reverse (char : acc)
+      (Fork{}, []) -> error "bad decoding"
+      (Leaf _ char, rest) -> go (char:acc) codemap rest
+      (Fork _ left _ , On  : rest) -> go acc left rest
+      (Fork _ _ right, Off : rest) -> go acc right rest
 
 compress :: FilePath -> FilePath -> IO ()
-compress src _ = print $ encode src
+compress src _ =
+  let
+    (htree, encoded) = encode src
+    decoded = decode htree encoded
+  in
+  do
+    print encoded
+    putStrLn decoded
+    putStrLn $ "Success: " ++ show (decoded == src)
 
 decompress :: FilePath -> FilePath -> IO ()
 decompress _ _ = putStrLn "decompress"
