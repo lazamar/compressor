@@ -18,6 +18,10 @@ import qualified Data.Binary.Get as Get
 import Data.Binary.Put (Put)
 import qualified Data.Binary.Put as Put
 import Data.Bits (shiftR)
+import Data.Char (chr)
+
+_END_OF_INPUT :: Char
+_END_OF_INPUT = chr 300
 
 type FreqMap = Map Char Int
 
@@ -47,7 +51,12 @@ countFrequency :: String -> FreqMap
 countFrequency = Map.fromListWith (+) . fmap (,1)
 
 buildTree :: FreqMap -> HTree
-buildTree = build . sort . fmap (\(c,w) -> Leaf w c) . Map.toList
+buildTree
+  = build
+  . sort
+  . fmap (\(c,w) -> Leaf w c)
+  . ((_END_OF_INPUT, 1) :)
+  . Map.toList
   where
   build trees = case trees of
     [] -> error "empty trees"
@@ -72,26 +81,25 @@ encode str = (freqMap, encoded)
   where
   freqMap = countFrequency str
   codemap = buildCodes $ buildTree freqMap
-  encoded = concatMap (codemap Map.!) str
+  encoded = concatMap (codemap Map.!) str ++ (codemap Map.! _END_OF_INPUT)
 
 serialize :: FreqMap -> [Bit] -> Builder
 serialize freqmap bits = Put.execPut $ do
   serializeFreqMap freqmap
-  Put.putWord8 (fromIntegral paddingLen)
-  foldMap serializeByte $ chunksOf 8 (padding ++ bits)
+  foldMap serializeByte $ chunksOf 8 bits
   where
-  paddingLen = 8 - (length bits `mod` 8)
-  padding = replicate paddingLen Zero
-
   -- takes a list with 8 bits
   serializeByte :: [Bit] -> Put
-  serializeByte = go 0
+  serializeByte = go 0 0
     where
-    go :: Word8 -> [Bit] -> Put
-    go acc bs = case bs of
-      [] -> Put.putWord8 acc
-      One : rest -> go (acc * 2 + 1) rest
-      Zero: rest -> go (acc * 2) rest
+    go :: Int -> Word8 -> [Bit] -> Put
+    go n acc bs = case bs of
+      [] ->
+        if n < 8
+           then go (n + 1) (acc * 2) []
+           else Put.putWord8 acc
+      One : rest -> go (n + 1) (acc * 2 + 1) rest
+      Zero: rest -> go (n + 1) (acc * 2) rest
 
 -- | Split a list in chunks
 chunksOf :: Int -> [a] -> [[a]]
@@ -118,10 +126,9 @@ deserializeFreqMap = do
 deserialize :: ByteString -> ByteString
 deserialize = Get.runGet $ do
   freqMap <- deserializeFreqMap
-  padding <- fromIntegral <$> Get.getWord8
   chars <- BS.unpack <$> Get.getRemainingLazyByteString
   let bits = concatMap toBits chars
-  return $ decode freqMap $ drop padding bits
+  return $ decode freqMap bits
   where
     toBits :: Char -> [Bit]
     toBits char = snd
@@ -144,9 +151,10 @@ decode freqMap bits = BS.pack $ go [] htree bits
   where
     htree = buildTree freqMap
     go acc tree xs = case (tree, xs) of
-      (Leaf _ char, []) -> reverse (char : acc)
+      (Leaf _ char, rest)
+        | char == _END_OF_INPUT -> reverse acc
+        | otherwise -> go (char:acc) htree rest
       (Fork{}, []) -> error "bad decoding"
-      (Leaf _ char, rest) -> go (char:acc) htree rest
       (Fork _ left _ , One  : rest) -> go acc left rest
       (Fork _ _ right, Zero : rest) -> go acc right rest
 
