@@ -76,30 +76,30 @@ buildCodes = Map.fromList . go []
         ++
         go (Zero : prefix) right
 
-encode :: FreqMap -> String -> [Bit]
-encode freqMap str = encoded
-  where
-  codemap = buildCodes $ buildTree freqMap
-  encoded = concatMap codeFor str ++ codeFor _END_OF_INPUT
-  codeFor char = codemap Map.! char
+encode :: CodeMap -> String -> [Bit]
+encode codemap str = concatMap (codemap Map.!) str
 
-serialize :: FreqMap -> [Bit] -> Builder
-serialize freqmap bits = Put.execPut $ do
+serialize :: FreqMap -> CodeMap -> [Bit] -> Builder
+serialize freqmap codemap bits = Put.execPut $ do
   serializeFreqMap freqmap
-  foldMap serializeByte $ chunksOf 8 bits
+  go False 0 0 bits
   where
-  -- takes a list with 8 bits
-  serializeByte :: [Bit] -> Put
-  serializeByte = go 0 0
-    where
-    go :: Int -> Word8 -> [Bit] -> Put
-    go n acc bs = case bs of
-      [] ->
-        if n < 8
-           then go (n + 1) (acc * 2) []
-           else Put.putWord8 acc
-      One : rest -> go (n + 1) (acc * 2 + 1) rest
-      Zero: rest -> go (n + 1) (acc * 2) rest
+  go :: Bool -> Int -> Word8 -> [Bit] -> Put
+  go end n w bs
+    | n == 8 = do
+      Put.putWord8 w
+      go end 0 0 bs
+    | otherwise =
+      case bs of
+        (One : rest) -> go end (n + 1) (w * 2 + 1) rest
+        (Zero : rest) -> go end (n + 1) (w * 2) rest
+        [] ->
+          if end
+          then
+            if w == 0
+               then return ()
+               else go end (n + 1) (w * 2) []
+          else go True n w (codemap Map.! _END_OF_INPUT)
 
 -- | Split a list in chunks
 chunksOf :: Int -> [a] -> [[a]]
@@ -162,8 +162,9 @@ compress :: FilePath -> FilePath -> IO ()
 compress src dst = do
   freqMap <- countFrequency . BS.unpack <$> BS.readFile src
   content <- BS.unpack <$> BS.readFile src
-  let bits = encode freqMap content
-  Builder.writeFile dst (serialize freqMap bits)
+  let codemap = buildCodes $ buildTree freqMap
+      bits = encode codemap content
+  Builder.writeFile dst (serialize freqMap codemap bits)
   putStrLn "Done."
 
 decompress :: FilePath -> FilePath -> IO ()
