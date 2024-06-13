@@ -76,10 +76,9 @@ buildCodes = Map.fromList . go []
         ++
         go (Zero : prefix) right
 
-encode :: String -> (FreqMap, [Bit])
-encode str = (freqMap, encoded)
+encode :: FreqMap -> String -> [Bit]
+encode freqMap str = encoded
   where
-  freqMap = countFrequency str
   codemap = buildCodes $ buildTree freqMap
   encoded = concatMap codeFor str ++ codeFor _END_OF_INPUT
   codeFor char = codemap Map.! char
@@ -161,9 +160,9 @@ decode freqMap bits = BS.pack $ go [] htree bits
 
 compress :: FilePath -> FilePath -> IO ()
 compress src dst = do
-  bytes <- BS.readFile src
-  let content = BS.unpack bytes
-      (freqMap, bits) = encode content
+  freqMap <- countFrequency . BS.unpack <$> BS.readFile src
+  content <- BS.unpack <$> BS.readFile src
+  let bits = encode freqMap content
   Builder.writeFile dst (serialize freqMap bits)
   putStrLn "Done."
 
@@ -177,7 +176,7 @@ test :: FilePath -> IO ()
 test src = do
   bytes <- BS.readFile src
   let content = BS.unpack bytes
-      (freqMap, _) = encode content
+      freqMap = countFrequency content
       bs = Builder.toLazyByteString
         $ Put.execPut
         $ serializeFreqMap freqMap
