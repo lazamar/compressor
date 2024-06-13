@@ -8,19 +8,20 @@ import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.List (sort, insert)
 import Data.Word (Word8)
+import Data.ByteString.Internal (c2w, w2c)
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as Builder
-import Data.ByteString.Lazy (ByteString)
-import qualified Data.ByteString.Lazy as BS
+import Data.ByteString.Lazy.Char8 (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Binary.Get (Get)
 import qualified Data.Binary.Get as Get
 import Data.Binary.Put (Put)
 import qualified Data.Binary.Put as Put
 import Data.Bits (shiftR)
 
-type FreqMap = Map Word8 Int
+type FreqMap = Map Char Int
 
-type CodeMap = Map Word8 Code
+type CodeMap = Map Char Code
 
 data Bit = One | Zero
   deriving Show
@@ -30,7 +31,7 @@ type Code = [Bit]
 type Weight = Int
 
 data HTree
-  = Leaf Weight Word8
+  = Leaf Weight Char
   | Fork Weight HTree HTree
   deriving Eq
 
@@ -42,7 +43,7 @@ weight htree = case htree of
   Leaf w _ -> w
   Fork w _ _ -> w
 
-countFrequency :: [Word8] -> FreqMap
+countFrequency :: String -> FreqMap
 countFrequency = Map.fromListWith (+) . fmap (,1)
 
 buildTree :: FreqMap -> HTree
@@ -58,7 +59,7 @@ buildTree = build . sort . fmap (\(c,w) -> Leaf w c) . Map.toList
 buildCodes :: HTree -> CodeMap
 buildCodes = Map.fromList . go []
   where
-    go :: Code -> HTree -> [(Word8, Code)]
+    go :: Code -> HTree -> [(Char, Code)]
     go prefix tree = case tree of
       Leaf _ char -> [(char, reverse prefix)]
       Fork _ left right ->
@@ -66,13 +67,12 @@ buildCodes = Map.fromList . go []
         ++
         go (Zero : prefix) right
 
-encode :: ByteString -> (FreqMap, [Bit])
-encode raw = (freqMap, encoded)
+encode :: String -> (FreqMap, [Bit])
+encode str = (freqMap, encoded)
   where
-  bytes = BS.unpack raw
-  freqMap = countFrequency bytes
+  freqMap = countFrequency str
   codemap = buildCodes $ buildTree freqMap
-  encoded = concatMap (codemap Map.!) bytes
+  encoded = concatMap (codemap Map.!) str
 
 serialize :: FreqMap -> [Bit] -> Builder
 serialize freqmap bits = Put.execPut $ do
@@ -103,7 +103,7 @@ serializeFreqMap :: FreqMap -> Put
 serializeFreqMap freqMap = do
   Put.putInt64be $ fromIntegral $ Map.size freqMap
   forM_ (Map.toList freqMap) $ \(char, freq) -> do
-    Put.putWord8 char
+    Put.putWord8 (c2w char)
     Put.putInt64be $ fromIntegral freq
 
 deserializeFreqMap :: Get FreqMap
@@ -112,19 +112,19 @@ deserializeFreqMap = do
   entries <- replicateM (fromIntegral len) $ do
     char <- Get.getWord8
     freq <- Get.getInt64be
-    return (char, fromIntegral freq)
+    return (w2c char, fromIntegral freq)
   return $ Map.fromList entries
 
 deserialize :: ByteString -> ByteString
 deserialize = Get.runGet $ do
   freqMap <- deserializeFreqMap
   padding <- fromIntegral <$> Get.getWord8
-  word8s <- BS.unpack <$> Get.getRemainingLazyByteString
-  let bits = concatMap toBits word8s
+  chars <- BS.unpack <$> Get.getRemainingLazyByteString
+  let bits = concatMap toBits chars
   return $ decode freqMap $ drop padding bits
   where
-    toBits :: Word8 -> [Bit]
-    toBits w = snd
+    toBits :: Char -> [Bit]
+    toBits char = snd
       $ getBit
       $ getBit
       $ getBit
@@ -132,7 +132,7 @@ deserialize = Get.runGet $ do
       $ getBit
       $ getBit
       $ getBit
-      $ getBit (w, [])
+      $ getBit (c2w char, [])
       where
         getBit (word, acc) =
           let bit = if even word then Zero else One
@@ -152,8 +152,9 @@ decode freqMap bits = BS.pack $ go [] htree bits
 
 compress :: FilePath -> FilePath -> IO ()
 compress src dst = do
-  content <- BS.readFile src
-  let (freqMap, bits) = encode content
+  bytes <- BS.readFile src
+  let content = BS.unpack bytes
+      (freqMap, bits) = encode content
   Builder.writeFile dst (serialize freqMap bits)
   putStrLn "Done."
 
@@ -165,8 +166,9 @@ decompress src dst = do
 
 test :: FilePath -> IO ()
 test src = do
-  content <- BS.readFile src
-  let (freqMap, _) = encode content
+  bytes <- BS.readFile src
+  let content = BS.unpack bytes
+      (freqMap, _) = encode content
       bs = Builder.toLazyByteString
         $ Put.execPut
         $ serializeFreqMap freqMap
