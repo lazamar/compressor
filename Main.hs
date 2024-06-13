@@ -2,7 +2,7 @@
 module Main where
 
 import System.Environment (getArgs)
-import Control.Monad (replicateM, forM_)
+import Control.Monad (replicateM, forM_, unless)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -55,8 +55,8 @@ buildTree
   = build
   . sort
   . fmap (\(c,w) -> Leaf w c)
-  . ((_END_OF_INPUT, 1) :)
   . Map.toList
+  . Map.insert _END_OF_INPUT 1
   where
   build trees = case trees of
     [] -> error "empty trees"
@@ -76,30 +76,33 @@ buildCodes = Map.fromList . go []
         ++
         go (Zero : prefix) right
 
-encode :: CodeMap -> String -> [Bit]
-encode codemap str = concatMap (codemap Map.!) str
-
-serialize :: FreqMap -> CodeMap -> [Bit] -> Builder
-serialize freqmap codemap bits = Put.execPut $ do
-  serializeFreqMap freqmap
-  go False 0 0 bits
+encode :: FreqMap -> String -> [Bit]
+encode freqMap str = encoded
   where
-  go :: Bool -> Int -> Word8 -> [Bit] -> Put
-  go end n w bs
+  codemap = buildCodes $ buildTree freqMap
+  encoded = concatMap codeFor str ++ codeFor _END_OF_INPUT
+  codeFor char = codemap Map.! char
+
+serialize :: FreqMap -> [Bit] -> Builder
+serialize freqmap bits = Put.execPut $ do
+  serializeFreqMap freqmap
+  write False 0 0 bits
+  where
+  write
+    :: Bool   -- ^ are we writing the end marker
+    -> Int    -- ^ bits filled in current byte
+    -> Word8  -- ^ byte being filled
+    -> [Bit]  -- ^ remaining bits
+    -> Put
+  write end n w bs
     | n == 8 = do
       Put.putWord8 w
-      go end 0 0 bs
+      unless end $ write end 0 0 bs
     | otherwise =
       case bs of
-        (One : rest) -> go end (n + 1) (w * 2 + 1) rest
-        (Zero : rest) -> go end (n + 1) (w * 2) rest
-        [] ->
-          if end
-          then
-            if w == 0
-               then return ()
-               else go end (n + 1) (w * 2) []
-          else go True n w (codemap Map.! _END_OF_INPUT)
+        (One : rest) -> write end (n + 1) (w * 2 + 1) rest
+        (Zero : rest) -> write end (n + 1) (w * 2) rest
+        [] -> write True n w $ replicate (8 - n) Zero -- pad with zeroes
 
 -- | Split a list in chunks
 chunksOf :: Int -> [a] -> [[a]]
@@ -162,9 +165,8 @@ compress :: FilePath -> FilePath -> IO ()
 compress src dst = do
   freqMap <- countFrequency . BS.unpack <$> BS.readFile src
   content <- BS.unpack <$> BS.readFile src
-  let codemap = buildCodes $ buildTree freqMap
-      bits = encode codemap content
-  Builder.writeFile dst (serialize freqMap codemap bits)
+  let bits = encode freqMap content
+  Builder.writeFile dst (serialize freqMap bits)
   putStrLn "Done."
 
 decompress :: FilePath -> FilePath -> IO ()
