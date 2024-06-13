@@ -81,7 +81,8 @@ encode str = (freqMap, encoded)
   where
   freqMap = countFrequency str
   codemap = buildCodes $ buildTree freqMap
-  encoded = concatMap (codemap Map.!) str ++ (codemap Map.! _END_OF_INPUT)
+  encoded = concatMap codeFor str ++ codeFor _END_OF_INPUT
+  codeFor char = codemap Map.! char
 
 serialize :: FreqMap -> [Bit] -> Builder
 serialize freqmap bits = Put.execPut $ do
