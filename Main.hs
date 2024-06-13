@@ -94,13 +94,10 @@ serialize freqmap bits = Put.execPut $ do
       Zero: rest -> go (acc * 2) rest
 
 -- | Split a list in chunks
-chunksOf :: Int -> [e] -> [[e]]
-chunksOf i ls = map (take i) (build (splitter ls))
- where
-  splitter :: [e] -> ([e] -> a -> a) -> a -> a
-  splitter [] _ n = n
-  splitter l c n = l `c` splitter (drop i l) c n
-  build g = g (:) []
+chunksOf :: Int -> [a] -> [[a]]
+chunksOf _ [] = []
+chunksOf n xs = ys : chunksOf n zs
+    where (ys,zs) = splitAt n xs
 
 serializeFreqMap :: FreqMap -> Put
 serializeFreqMap freqMap = do
