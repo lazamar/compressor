@@ -7,7 +7,6 @@ import qualified Data.Binary.Get as Get
 import Data.Binary.Put (Put)
 import qualified Data.Binary.Put as Put
 import Data.Bits (shiftR)
-import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as Builder
 import Data.ByteString.Internal (c2w, w2c)
 import Data.ByteString.Lazy.Char8 (ByteString)
@@ -83,8 +82,20 @@ encode freqMap str = encoded
   encoded = concatMap codeFor str ++ codeFor _END_OF_INPUT
   codeFor char = codemap Map.! char
 
-serialize :: FreqMap -> [Bit] -> Builder
-serialize freqmap bits = Put.execPut $ do
+decode :: FreqMap -> [Bit] -> String
+decode freqMap bits = go [] htree bits
+  where
+    htree = buildTree freqMap
+    go acc tree xs = case (tree, xs) of
+      (Leaf _ char, rest)
+        | char == _END_OF_INPUT -> reverse acc
+        | otherwise -> go (char:acc) htree rest
+      (Fork{}, []) -> error "bad decoding"
+      (Fork _ left _ , One  : rest) -> go acc left rest
+      (Fork _ _ right, Zero : rest) -> go acc right rest
+
+serialize :: FreqMap -> [Bit] -> ByteString
+serialize freqmap bits = Put.runPut $ do
   serializeFreqMap freqmap
   write False 0 0 bits
   where
@@ -104,12 +115,6 @@ serialize freqmap bits = Put.execPut $ do
         (Zero : rest) -> write end (n + 1) (w * 2) rest
         [] -> write True n w $ replicate (8 - n) Zero -- pad with zeroes
 
--- | Split a list in chunks
-chunksOf :: Int -> [a] -> [[a]]
-chunksOf _ [] = []
-chunksOf n xs = ys : chunksOf n zs
-    where (ys,zs) = splitAt n xs
-
 serializeFreqMap :: FreqMap -> Put
 serializeFreqMap freqMap = do
   Put.putInt64be $ fromIntegral $ Map.size freqMap
@@ -126,12 +131,12 @@ deserializeFreqMap = do
     return (w2c char, fromIntegral freq)
   return $ Map.fromList entries
 
-deserialize :: ByteString -> ByteString
+deserialize :: ByteString -> (FreqMap, [Bit])
 deserialize = Get.runGet $ do
   freqMap <- deserializeFreqMap
   chars <- BS.unpack <$> Get.getRemainingLazyByteString
   let bits = concatMap toBits chars
-  return $ decode freqMap bits
+  return (freqMap, bits)
   where
     toBits :: Char -> [Bit]
     toBits char = snd
@@ -149,30 +154,20 @@ deserialize = Get.runGet $ do
           in
           ( word `shiftR` 1, bit : acc )
 
-decode :: FreqMap -> [Bit] -> ByteString
-decode freqMap bits = BS.pack $ go [] htree bits
-  where
-    htree = buildTree freqMap
-    go acc tree xs = case (tree, xs) of
-      (Leaf _ char, rest)
-        | char == _END_OF_INPUT -> reverse acc
-        | otherwise -> go (char:acc) htree rest
-      (Fork{}, []) -> error "bad decoding"
-      (Fork _ left _ , One  : rest) -> go acc left rest
-      (Fork _ _ right, Zero : rest) -> go acc right rest
-
 compress :: FilePath -> FilePath -> IO ()
 compress src dst = do
   freqMap <- countFrequency . BS.unpack <$> BS.readFile src
   content <- BS.unpack <$> BS.readFile src
   let bits = encode freqMap content
-  Builder.writeFile dst (serialize freqMap bits)
+  BS.writeFile dst (serialize freqMap bits)
   putStrLn "Done."
 
 decompress :: FilePath -> FilePath -> IO ()
 decompress src dst = do
   bs <- BS.readFile src
-  BS.writeFile dst (deserialize bs)
+  let (freqMap, bits) = deserialize bs
+      str = decode freqMap bits
+  BS.writeFile dst (BS.pack str)
   putStrLn "Done."
 
 test :: FilePath -> IO ()
