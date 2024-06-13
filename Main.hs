@@ -1,24 +1,24 @@
 {-# LANGUAGE TupleSections #-}
 module Main where
 
-import System.Environment (getArgs)
 import Control.Monad (replicateM, forM_, unless)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
-import qualified Data.Set as Set
-import Data.List (sort, insert)
-import Data.Word (Word8)
-import Data.ByteString.Internal (c2w, w2c)
-import Data.ByteString.Builder (Builder)
-import qualified Data.ByteString.Builder as Builder
-import Data.ByteString.Lazy.Char8 (ByteString)
-import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Binary.Get (Get)
 import qualified Data.Binary.Get as Get
 import Data.Binary.Put (Put)
 import qualified Data.Binary.Put as Put
 import Data.Bits (shiftR)
+import Data.ByteString.Builder (Builder)
+import qualified Data.ByteString.Builder as Builder
+import Data.ByteString.Internal (c2w, w2c)
+import Data.ByteString.Lazy.Char8 (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Char (chr)
+import Data.List (sort, insert)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import Data.Word (Word8)
+import System.Environment (getArgs)
 
 _END_OF_INPUT :: Char
 _END_OF_INPUT = chr 300
