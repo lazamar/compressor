@@ -6,7 +6,6 @@ import Data.Binary.Get (Get)
 import qualified Data.Binary.Get as Get
 import Data.Binary.Put (Put)
 import qualified Data.Binary.Put as Put
-import Data.Bits (shiftR)
 import Data.ByteString.Internal (c2w, w2c)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BS
@@ -58,13 +57,12 @@ buildTree = build . sort . fmap (\(c,w) -> Leaf w c) . Map.toList
 buildCodes :: HTree -> CodeMap
 buildCodes = Map.fromList . go []
   where
-    go :: Code -> HTree -> [(Char, Code)]
-    go prefix tree = case tree of
-      Leaf _ char -> [(char, reverse prefix)]
-      Fork _ left right ->
-        go (One : prefix) left
-        ++
-        go (Zero : prefix) right
+  go :: Code -> HTree -> [(Char, Code)]
+  go prefix tree = case tree of
+    Leaf _ char -> [(char, reverse prefix)]
+    Fork _ left right ->
+      go (One : prefix) left ++
+      go (Zero : prefix) right
 
 encode :: FreqMap -> String -> [Bit]
 encode freqMap str = encoded
@@ -76,15 +74,15 @@ encode freqMap str = encoded
 decode :: FreqMap -> [Bit] -> String
 decode freqMap bits = go 1 htree bits
   where
-    htree = buildTree freqMap
-    total = sum $ Map.elems freqMap
-    go count tree xs = case (tree, xs) of
-      (Leaf _ char, rest)
-        | count == total -> char : []
-        | otherwise -> char : go (count + 1) htree rest
-      (Fork{}, []) -> error "bad decoding"
-      (Fork _ left _ , One  : rest) -> go count left rest
-      (Fork _ _ right, Zero : rest) -> go count right rest
+  htree = buildTree freqMap
+  total = sum $ Map.elems freqMap
+  go count tree xs = case (tree, xs) of
+    (Leaf _ char, rest)
+      | count == total -> [char]
+      | otherwise -> char : go (count + 1) htree rest
+    (Fork _ left _ , One  : rest) -> go count left rest
+    (Fork _ _ right, Zero : rest) -> go count right rest
+    (Fork{}, []) -> error "bad decoding"
 
 serialize :: FreqMap -> [Bit] -> ByteString
 serialize freqmap bits = Put.runPut $ do
@@ -107,6 +105,27 @@ serialize freqmap bits = Put.runPut $ do
         (Zero : rest) -> write end (n + 1) (w * 2) rest
         [] -> write True n w $ replicate (8 - n) Zero -- pad with zeroes
 
+deserialize :: ByteString -> (FreqMap, [Bit])
+deserialize bs = flip Get.runGet bs $ do
+  freqMap <- deserializeFreqMap
+  offset <- fromIntegral <$> Get.bytesRead
+  let chars = drop offset $ BS.unpack bs
+      bits = concatMap toBits chars
+  return (freqMap, bits)
+  where
+    toBits :: Char -> [Bit]
+    toBits char = getBit 0 (c2w char)
+
+    getBit :: Int -> Word8 -> [Bit]
+    getBit n word =
+      if n == 8
+        then []
+        else bit : getBit (n + 1) (word * 2)
+      where
+        -- Test the leftmost bit. The byte 10000000 is the number 128.
+        -- Anything less than 128 has a zero on the leftmost bit.
+        bit = if word < 128 then Zero else One
+
 serializeFreqMap :: FreqMap -> Put
 serializeFreqMap freqMap = do
   Put.putInt64be $ fromIntegral $ Map.size freqMap
@@ -122,30 +141,6 @@ deserializeFreqMap = do
     freq <- Get.getInt64be
     return (w2c char, fromIntegral freq)
   return $ Map.fromList entries
-
-deserialize :: ByteString -> (FreqMap, [Bit])
-deserialize bs = flip Get.runGet bs $ do
-  freqMap <- deserializeFreqMap
-  offset <- fromIntegral <$> Get.bytesRead
-  let chars = drop offset $ BS.unpack bs
-      bits = concatMap toBits chars
-  return (freqMap, bits)
-  where
-    toBits :: Char -> [Bit]
-    toBits char = snd
-      $ getBit
-      $ getBit
-      $ getBit
-      $ getBit
-      $ getBit
-      $ getBit
-      $ getBit
-      $ getBit (c2w char, [])
-      where
-        getBit (word, acc) =
-          let bit = if even word then Zero else One
-          in
-          ( word `shiftR` 1, bit : acc )
 
 compress :: FilePath -> FilePath -> IO ()
 compress src dst = do
