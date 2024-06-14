@@ -105,6 +105,13 @@ serialize freqmap bits = Put.runPut $ do
         (Zero : rest) -> write end (n + 1) (w * 2) rest
         [] -> write True n w $ replicate (8 - n) Zero -- pad with zeroes
 
+  serializeFreqMap :: FreqMap -> Put
+  serializeFreqMap freqMap = do
+    Put.putInt64be $ fromIntegral $ Map.size freqMap
+    forM_ (Map.toList freqMap) $ \(char, freq) -> do
+      Put.putWord8 (c2w char)
+      Put.putInt64be $ fromIntegral freq
+
 deserialize :: ByteString -> (FreqMap, [Bit])
 deserialize bs = flip Get.runGet bs $ do
   freqMap <- deserializeFreqMap
@@ -113,34 +120,27 @@ deserialize bs = flip Get.runGet bs $ do
       bits = concatMap toBits chars
   return (freqMap, bits)
   where
-    toBits :: Char -> [Bit]
-    toBits char = getBit 0 (c2w char)
+  toBits :: Char -> [Bit]
+  toBits char = getBit 0 (c2w char)
 
-    getBit :: Int -> Word8 -> [Bit]
-    getBit n word =
-      if n == 8
-        then []
-        else bit : getBit (n + 1) (word * 2)
-      where
-        -- Test the leftmost bit. The byte 10000000 is the number 128.
-        -- Anything less than 128 has a zero on the leftmost bit.
-        bit = if word < 128 then Zero else One
+  getBit :: Int -> Word8 -> [Bit]
+  getBit n word =
+    if n == 8
+      then []
+      else bit : getBit (n + 1) (word * 2)
+    where
+      -- Test the leftmost bit. The byte 10000000 is the number 128.
+      -- Anything less than 128 has a zero on the leftmost bit.
+      bit = if word < 128 then Zero else One
 
-serializeFreqMap :: FreqMap -> Put
-serializeFreqMap freqMap = do
-  Put.putInt64be $ fromIntegral $ Map.size freqMap
-  forM_ (Map.toList freqMap) $ \(char, freq) -> do
-    Put.putWord8 (c2w char)
-    Put.putInt64be $ fromIntegral freq
-
-deserializeFreqMap :: Get FreqMap
-deserializeFreqMap = do
-  len <- Get.getInt64be
-  entries <- replicateM (fromIntegral len) $ do
-    char <- Get.getWord8
-    freq <- Get.getInt64be
-    return (w2c char, fromIntegral freq)
-  return $ Map.fromList entries
+  deserializeFreqMap :: Get FreqMap
+  deserializeFreqMap = do
+    len <- Get.getInt64be
+    entries <- replicateM (fromIntegral len) $ do
+      char <- Get.getWord8
+      freq <- Get.getInt64be
+      return (w2c char, fromIntegral freq)
+    return $ Map.fromList entries
 
 compress :: FilePath -> FilePath -> IO ()
 compress src dst = do
