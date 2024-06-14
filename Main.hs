@@ -16,6 +16,7 @@ import qualified Data.Map.Strict as Map
 import Data.Word (Word8)
 import System.Environment (getArgs)
 import System.Process
+import System.TimeIt (timeIt)
 
 type FreqMap = Map Char Int
 
@@ -73,17 +74,17 @@ encode freqMap str = encoded
   codeFor char = codemap Map.! char
 
 decode :: FreqMap -> [Bit] -> String
-decode freqMap bits = go 1 [] htree bits
+decode freqMap bits = go 1 htree bits
   where
     htree = buildTree freqMap
     total = sum $ Map.elems freqMap
-    go count acc tree xs = case (tree, xs) of
+    go count tree xs = case (tree, xs) of
       (Leaf _ char, rest)
-        | count == total -> reverse (char:acc)
-        | otherwise -> go (count + 1) (char:acc) htree rest
+        | count == total -> char : []
+        | otherwise -> char : go (count + 1) htree rest
       (Fork{}, []) -> error "bad decoding"
-      (Fork _ left _ , One  : rest) -> go count acc left rest
-      (Fork _ _ right, Zero : rest) -> go count acc right rest
+      (Fork _ left _ , One  : rest) -> go count left rest
+      (Fork _ _ right, Zero : rest) -> go count right rest
 
 serialize :: FreqMap -> [Bit] -> ByteString
 serialize freqmap bits = Put.runPut $ do
@@ -123,10 +124,11 @@ deserializeFreqMap = do
   return $ Map.fromList entries
 
 deserialize :: ByteString -> (FreqMap, [Bit])
-deserialize = Get.runGet $ do
+deserialize bs = flip Get.runGet bs $ do
   freqMap <- deserializeFreqMap
-  chars <- BS.unpack <$> Get.getRemainingLazyByteString
-  let bits = concatMap toBits chars
+  offset <- fromIntegral <$> Get.bytesRead
+  let chars = drop offset $ BS.unpack bs
+      bits = concatMap toBits chars
   return (freqMap, bits)
   where
     toBits :: Char -> [Bit]
@@ -165,8 +167,10 @@ test :: FilePath -> IO ()
 test src = do
   let mid = src <> ".compressed"
       out = src <> ".decompressed"
-  compress src mid
-  decompress mid out
+  putStrLn "Compressing"
+  timeIt $ compress src mid
+  putStrLn "Decompressing"
+  timeIt $ decompress mid out
   callProcess "diff" ["-s", src, out]
   callProcess "rm" [mid]
   callProcess "rm" [out]
