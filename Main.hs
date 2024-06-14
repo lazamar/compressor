@@ -7,20 +7,15 @@ import qualified Data.Binary.Get as Get
 import Data.Binary.Put (Put)
 import qualified Data.Binary.Put as Put
 import Data.Bits (shiftR)
-import qualified Data.ByteString.Builder as Builder
 import Data.ByteString.Internal (c2w, w2c)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BS
-import Data.Char (chr)
 import Data.List (sort, insert)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import Data.Word (Word8)
 import System.Environment (getArgs)
-
-_END_OF_INPUT :: Char
-_END_OF_INPUT = chr 300
+import System.Process
 
 type FreqMap = Map Char Int
 
@@ -50,12 +45,7 @@ countFrequency :: String -> FreqMap
 countFrequency = Map.fromListWith (+) . fmap (,1)
 
 buildTree :: FreqMap -> HTree
-buildTree
-  = build
-  . sort
-  . fmap (\(c,w) -> Leaf w c)
-  . Map.toList
-  . Map.insert _END_OF_INPUT 1
+buildTree = build . sort . fmap (\(c,w) -> Leaf w c) . Map.toList
   where
   build trees = case trees of
     [] -> error "empty trees"
@@ -79,20 +69,21 @@ encode :: FreqMap -> String -> [Bit]
 encode freqMap str = encoded
   where
   codemap = buildCodes $ buildTree freqMap
-  encoded = concatMap codeFor str ++ codeFor _END_OF_INPUT
+  encoded = concatMap codeFor str
   codeFor char = codemap Map.! char
 
 decode :: FreqMap -> [Bit] -> String
-decode freqMap bits = go [] htree bits
+decode freqMap bits = go 1 [] htree bits
   where
     htree = buildTree freqMap
-    go acc tree xs = case (tree, xs) of
+    total = sum $ Map.elems freqMap
+    go count acc tree xs = case (tree, xs) of
       (Leaf _ char, rest)
-        | char == _END_OF_INPUT -> reverse acc
-        | otherwise -> go (char:acc) htree rest
+        | count == total -> reverse (char:acc)
+        | otherwise -> go (count + 1) (char:acc) htree rest
       (Fork{}, []) -> error "bad decoding"
-      (Fork _ left _ , One  : rest) -> go acc left rest
-      (Fork _ _ right, Zero : rest) -> go acc right rest
+      (Fork _ left _ , One  : rest) -> go count acc left rest
+      (Fork _ _ right, Zero : rest) -> go count acc right rest
 
 serialize :: FreqMap -> [Bit] -> ByteString
 serialize freqmap bits = Put.runPut $ do
@@ -172,27 +163,13 @@ decompress src dst = do
 
 test :: FilePath -> IO ()
 test src = do
-  bytes <- BS.readFile src
-  let content = BS.unpack bytes
-      freqMap = countFrequency content
-      bs = Builder.toLazyByteString
-        $ Put.execPut
-        $ serializeFreqMap freqMap
-      freqMap' = Get.runGet deserializeFreqMap bs
-
-      keys = Set.toList $ Map.keysSet freqMap <> Map.keysSet freqMap'
-
-      keysRemoved = filter (\k -> not $ Map.member k freqMap') keys
-      keysAdded = filter (\k -> not $ Map.member k freqMap) keys
-
-  if freqMap == freqMap'
-     then putStrLn "Success"
-     else do
-        putStrLn "Removed:"
-        print keysRemoved
-        putStrLn "Added:"
-        print keysAdded
-        putStrLn "Failure"
+  let mid = src <> ".compressed"
+      out = src <> ".decompressed"
+  compress src mid
+  decompress mid out
+  callProcess "diff" ["-s", src, out]
+  callProcess "rm" [mid]
+  callProcess "rm" [out]
 
 main :: IO ()
 main = do
