@@ -75,7 +75,7 @@ decode :: FreqMap -> [Bit] -> String
 decode freqMap bits = go 1 htree bits
   where
   htree = buildTree freqMap
-  total = sum $ Map.elems freqMap
+  total = weight htree
   go count tree xs = case (tree, xs) of
     (Leaf _ char, rest)
       | count == total -> [char]
