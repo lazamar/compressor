@@ -13,17 +13,18 @@ Despite none of the functions using explicit stream processing, files are lazily
 
 Compression works in two passes. The first records byte frequencies and builds the model. The second uses the model to code the resulting bytes.
 
-
-
 Run it:
 
 ```
+# Compile
+$ ghc -O2 Main.hs -o main
+
 # compress
-$ cabal run -- compressor compress WarAndPeace.txt WarAndPeace.txt.compressed
+$ ./main WarAndPeace.txt WarAndPeace.txt.compressed
 Done.
 
 # decompress
-$ cabal run -- compressor decompress WarAndPeace.txt.compressed WarAndPeace.txt.expanded
+$ ./main decompress WarAndPeace.txt.compressed WarAndPeace.txt.expanded
 Done.
 
 # Result. 40% decrease in size.

@@ -14,8 +14,9 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Word (Word8)
 import System.Environment (getArgs)
-import System.Process
-import System.TimeIt (timeIt)
+import System.Process (callProcess)
+import System.CPUTime (getCPUTime)
+import Text.Printf (printf)
 
 type FreqMap = Map Char Int
 
@@ -163,12 +164,21 @@ test src = do
   let mid = src <> ".compressed"
       out = src <> ".decompressed"
   putStrLn "Compressing"
-  timeIt $ compress src mid
+  timed $ compress src mid
   putStrLn "Decompressing"
-  timeIt $ decompress mid out
+  timed $ decompress mid out
   callProcess "diff" ["-s", src, out]
   callProcess "rm" [mid]
   callProcess "rm" [out]
+  where
+    timed act = do
+      t1 <- getCPUTime
+      result <- act
+      t2 <- getCPUTime
+      let t :: Double
+          t = fromIntegral (t2-t1) * 1e-12
+      printf "CPU time: %6.2fs\n" t
+      return result
 
 main :: IO ()
 main = do

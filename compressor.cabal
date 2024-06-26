@@ -16,5 +16,3 @@ executable compressor
         bytestring,
         binary,
         process,
-        timeit,
-
